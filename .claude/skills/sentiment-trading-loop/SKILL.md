@@ -27,12 +27,68 @@ Stage 6 feeds stage 3 and 4. Running 1–5 repeatedly without 6 just generates w
 
 ## Stage 1 — Collect
 
-Run the Apify actor `lofomachines/social-stock-news-sentiment` (`timeRange: last_24h`,
-`maxItems: 1000`, `sentiment: true`). It sweeps news outlets, Telegram, X and Reddit and
-returns per-record: cleaned text, UTC timestamp, a bullish/bearish/neutral label, a
-directional score in [-1, +1], and a high/medium/low market-impact rating.
+Run the Apify actor `lofomachines/social-stock-news-sentiment`. It sweeps news outlets,
+Telegram, X and Reddit, deduplicates, and scores each item.
 
 The run takes ~2.5 minutes. Poll with `get-actor-run` rather than assuming it finished.
+
+### The Actor's contract
+
+Read this before writing any analysis code against the dataset. Guessing a field name or
+assuming the sentiment fields are populated are the two ways this stage fails silently.
+
+**Inputs**
+
+| Field | Type | What to pass |
+| --- | --- | --- |
+| `timeRange` | enum: `last_hour` \| `last_24h` | `last_24h` for the pre-market sweep. `last_hour` is the intraday refresh — use it when re-checking a thesis mid-session, not when building the watchlist |
+| `maxItems` | integer, **minimum 1000** | `1000`. Coverage is spread across sources, so a lower number does not simply truncate — it thins every source |
+| `sentiment` | boolean, default `true` | `true`. **Paid Apify plans only** — see below |
+
+**Outputs** — nine flat fields per record, no nesting:
+
+| Field | Type | Notes |
+| --- | --- | --- |
+| `id` | string | 16-char stable identifier |
+| `content` | string | The signal text. **Not uniform** — see below |
+| `content_length` | integer | Character count |
+| `word_count` | integer | Median ~13 |
+| `published_at` | string | ISO-8601 UTC, e.g. `2026-08-10T03:50:11Z` |
+| `published_date` | string | `YYYY-MM-DD`, derived from `published_at` |
+| `sentiment` | string \| **null** | `bullish` \| `bearish` \| `neutral` |
+| `sentiment_score` | float \| **null** | Observed range −0.9 to +0.9; the schema allows −1.0 to +1.0 |
+| `market_impact` | string \| **null** | `high` \| `medium` \| `low` |
+
+**On a free Apify plan the last three fields are `null`** and no content is sent for
+scoring. Every other field is unaffected. Check for nulls before aggregating — averaging a
+null column yields zero, which reads as "perfectly neutral market" and is entirely wrong.
+If the sentiment fields are null, fall back to selecting on impact-free volume and price
+action, and say so in the plan.
+
+### What to expect in the data
+
+Measured across two reference runs (2026-08-07 and 2026-08-10), both `last_24h`,
+`maxItems: 1000`, ~1,000 records each, billed at $0.053 per run:
+
+- **About half the records carry the previous calendar date.** A `last_24h` sweep run at
+  07:00 UTC split 555/445 and 496/496 across the two dates. This is correct behaviour, not
+  stale data — the previous US session and its after-hours reaction are the point.
+- **`content` ranges from a 2-word fragment to a 1,527-word article.** In one run 853 of 992
+  records were headlines under 25 words and 41 were full articles. Any text analysis has to
+  handle both; truncating uniformly throws away the long-form context.
+- **Some runs include `META_`-prefixed placeholder records** such as `META_TITLE_SECTORS`.
+  They carry no signal. Skip anything where `content.startswith("META_")` — one reference
+  run had them, the other had none.
+- **Near-duplicates are normal.** The same story arrives from several sources, typically
+  2×. Deduplicating on the first ~70 characters is usually enough; do not assume `id`
+  uniqueness means story uniqueness.
+- **Not everything is in English.** One run carried 15 Finnish and Danish records. Ticker
+  extraction and any keyword matching will miss these; that is acceptable, silently
+  dropping them without noticing is not.
+- **The bullish/bearish ratio shifts run to run, and the shift is itself a signal.** The two
+  reference runs came in at 302/241 (1.25) and 375/190 (1.97). The second followed an
+  overnight repricing of Fed expectations. Compare the ratio to the previous run before
+  reading any individual record.
 
 **Pull the dataset over plain HTTP, not through the MCP tool** — Apify datasets are
 publicly readable by ID and the payload is ~600 KB, which will swamp the context window
