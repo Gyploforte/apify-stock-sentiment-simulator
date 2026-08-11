@@ -242,14 +242,25 @@ These cost real debugging time and fail quietly. `marketsim/yf.py` already handl
 
 Two out-of-sample sessions, benchmarked against the S&P 500 measured **from the opening print** — the portfolio is flat at 09:30 and flat by 15:55, so charging it the overnight gap would compare two different exposures.
 
-| Session | Strategy | S&P 500 | Difference | Trades |
-| --- | --- | --- | --- | --- |
-| 2026-08-07 | −1.18% | +0.26% | −1.44 pp | 14 |
-| 2026-08-10 | **+1.83%** | +0.02% | **+1.81 pp** | 13 |
+| Session | Strategy | S&P 500 | Difference | Trades | Ran with |
+| --- | --- | --- | --- | --- | --- |
+| 2026-08-07 | −1.18% | +0.26% | −1.44 pp | 14 | no skill, original parameters |
+| 2026-08-10 | **+1.83%** | +0.02% | **+1.81 pp** | 13 | skill + both structural fixes |
 
-**This proves nothing yet, and the repository is written to keep saying so.** Twenty-seven trades across two days, one lost and one won, is exactly what noise looks like. `references/evidence.md` puts the thresholds in writing: under 50 out-of-sample trades only structural defects are actionable, ~200 before the book can be judged against its benchmark.
+### What changed between the two
 
-The frozen watchlist for both sessions is in `marketsim/sessions/`, so what was committed to before each open is checkable rather than remembered.
+The losing session came first, and the skill did not exist yet. Everything I learned that Friday lived in a chat transcript that would have been gone by Monday. So the weekend went on packaging the loop — `SKILL.md`, `evidence.md`, `diagnose.py` — and on running the post-mortem it prescribes. That turned up two structural defects:
+
+1. **The profit target never fired.** Not once in 51 trades across four sessions. A 2–2.5R target on a ~1.5% stop needs a 3–5% intraday move while the median favourable excursion was +1.16%, so the target sat roughly three times further out than price actually goes. Capping it at `0.30 × daily ATR` fixed it, and targets started firing — three of them on Monday.
+2. **Nothing connected the macro read to the book.** Friday's plan was built on a hawkish-Fed thesis; the 08:30 payroll print inverted that thesis twelve minutes before the bell and the engine executed the short book straight into a rally. The regime gate closes that gap.
+
+The skill's contribution was as much about what it *stopped* me doing. Friday's entries looked broken — median adverse excursion −1.85% against a favourable +1.16% — and the obvious move was to rewrite the entry rules. `diagnose.py` pooled the other three sessions, where that ratio was positive, and `evidence.md` refused the change: under 50 out-of-sample trades, only defects you could have found *without* looking at the P/L are actionable. "This rule lost money" is performance, and performance needs sample size.
+
+Monday's session was then built by the skill from a fresh Actor sweep, with both fixes in place, and it made money.
+
+**That sequence is not proof the skill caused the profit, and the repository is written to keep saying so.** The two sessions differ in three ways at once — different watchlist, different parameters, different market — and twenty-seven trades split one-and-one is exactly what noise looks like. What is demonstrable is narrower: the skill improved the *process*. It found a parameter that could never fire, forced every in-sample number to be labelled as such, and blocked a change that four sessions of data did not support.
+
+The ablation for both fixes, measured one at a time across all four available sessions, is in-sample by construction and is reported that way. The frozen watchlist for each session is in `marketsim/sessions/`, so what was committed to before each open is checkable rather than remembered.
 
 ## Repository layout
 
