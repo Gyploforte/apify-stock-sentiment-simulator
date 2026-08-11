@@ -1,0 +1,434 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Sentiment Desk — paper simulator</title>
+<style>
+  :root{
+    --bg:#0b0e14; --panel:#12161f; --panel2:#161b26; --line:#232a38;
+    --ink:#e6ebf5; --dim:#8a94a8; --dimmer:#5a6377;
+    --up:#2ecc9a; --down:#ff5c72; --accent:#5b9dff; --warn:#f5a623;
+    --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,monospace;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+       font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Inter,sans-serif}
+  a{color:var(--accent)}
+  .wrap{max-width:1400px;margin:0 auto;padding:20px}
+
+  header{display:flex;align-items:center;gap:16px;flex-wrap:wrap;margin-bottom:18px}
+  h1{font-size:17px;margin:0;letter-spacing:-.01em}
+  h1 small{display:block;font-weight:400;color:var(--dim);font-size:12px;letter-spacing:0}
+  .clock{margin-left:auto;font:12px/1.4 var(--mono);color:var(--dim);text-align:right}
+  .pill{display:inline-flex;align-items:center;gap:6px;padding:3px 10px;border-radius:99px;
+        font:11px/1.6 var(--mono);text-transform:uppercase;letter-spacing:.06em;border:1px solid var(--line)}
+  .dot{width:7px;height:7px;border-radius:99px;background:currentColor}
+  .p-open{color:var(--up);border-color:color-mix(in srgb,var(--up) 40%,transparent)}
+  .p-premarket,.p-afterhours{color:var(--warn);border-color:color-mix(in srgb,var(--warn) 40%,transparent)}
+  .p-closed{color:var(--dimmer)}
+
+  .panel{background:var(--panel);border:1px solid var(--line);border-radius:12px}
+  .grid{display:grid;grid-template-columns:1fr 340px;gap:16px;align-items:start}
+  @media(max-width:1000px){.grid{grid-template-columns:1fr}}
+
+  /* controls */
+  .ctl{display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap;padding:16px}
+  label{display:block;font-size:11px;color:var(--dim);text-transform:uppercase;
+        letter-spacing:.07em;margin-bottom:6px}
+  input[type=number]{background:var(--bg);border:1px solid var(--line);color:var(--ink);
+        padding:9px 12px;border-radius:8px;font:15px var(--mono);width:150px}
+  input:focus{outline:none;border-color:var(--accent)}
+  button{border:0;border-radius:8px;padding:10px 20px;font-size:14px;font-weight:600;cursor:pointer}
+  .go{background:var(--up);color:#04231a}
+  .halt{background:var(--down);color:#2a0a10}
+  button:disabled{opacity:.35;cursor:not-allowed}
+  .chips{display:flex;gap:6px;margin-left:auto}
+  .chip{background:var(--panel2);border:1px solid var(--line);border-radius:7px;
+        padding:6px 10px;font:11px var(--mono);color:var(--dim);cursor:pointer}
+  .chip:hover{border-color:var(--accent);color:var(--ink)}
+
+  /* stat row */
+  .stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));
+         border-top:1px solid var(--line)}
+  .stat{padding:14px 16px;border-right:1px solid var(--line)}
+  .stat:last-child{border-right:0}
+  .stat .k{font-size:10px;color:var(--dim);text-transform:uppercase;letter-spacing:.08em}
+  .stat .v{font:600 20px/1.3 var(--mono);margin-top:3px;letter-spacing:-.02em}
+  .up{color:var(--up)} .down{color:var(--down)} .neutral{color:var(--ink)}
+
+  canvas{display:block;width:100%;height:280px}
+
+  /* tables */
+  section h2{font-size:12px;text-transform:uppercase;letter-spacing:.08em;color:var(--dim);
+             margin:0;padding:13px 16px;border-bottom:1px solid var(--line);
+             display:flex;justify-content:space-between;align-items:center}
+  section h2 span{font:11px var(--mono);color:var(--dimmer);text-transform:none;letter-spacing:0}
+  table{width:100%;border-collapse:collapse;font:12px var(--mono)}
+  th{text-align:left;font-weight:500;color:var(--dimmer);font-size:10px;
+     text-transform:uppercase;letter-spacing:.06em;padding:8px 10px;border-bottom:1px solid var(--line)}
+  td{padding:8px 10px;border-bottom:1px solid color-mix(in srgb,var(--line) 55%,transparent)}
+  tr:last-child td{border-bottom:0}
+  .num{text-align:right}
+  .sym{font-weight:700;color:var(--ink)}
+  .tag{font-size:9px;padding:2px 6px;border-radius:4px;background:var(--panel2);
+       color:var(--dim);border:1px solid var(--line);white-space:nowrap}
+  .side-long{color:var(--up)} .side-short{color:var(--down)}
+  /* live-scan states: colour carries urgency, so it reads without being read */
+  [class^=st-]{font:10px var(--mono);text-transform:uppercase;letter-spacing:.06em;
+       padding:2px 7px;border-radius:4px;border:1px solid currentColor;white-space:nowrap}
+  .st-signal{color:var(--up);background:color-mix(in srgb,var(--up) 16%,transparent)}
+  .st-in-position{color:var(--accent)}
+  .st-armed{color:var(--warn)}
+  .st-warm-up,.st-no-data{color:var(--dimmer)}
+  .st-done,.st-blocked,.st-closed{color:var(--dim)}
+  .scroll{max-height:340px;overflow:auto}
+  .empty{padding:26px 16px;color:var(--dimmer);font-size:13px;text-align:center}
+
+  /* log */
+  .log{max-height:300px;overflow:auto;padding:6px 0}
+  .le{display:flex;gap:9px;padding:5px 14px;font:11px/1.5 var(--mono);
+      border-bottom:1px solid color-mix(in srgb,var(--line) 40%,transparent)}
+  .le time{color:var(--dimmer);flex:none}
+  .le.good{color:var(--up)} .le.bad{color:var(--down)}
+  .le.warn{color:var(--warn)} .le.info{color:var(--dim)}
+
+  .note{padding:12px 16px;font-size:12px;color:var(--dim);border-top:1px solid var(--line);line-height:1.6}
+  .macro li{margin-bottom:7px}
+  .macro{margin:0;padding:12px 16px 14px 32px;font-size:12px;color:var(--dim);line-height:1.55}
+  .stack{display:flex;flex-direction:column;gap:16px}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <div>
+    <h1>Sentiment Desk
+      <small id="subtitle">paper trading on live Yahoo Finance prices</small>
+    </h1>
+  </div>
+  <div class="clock">
+    <span id="phase" class="pill p-closed"><i class="dot"></i><span id="phaseTxt">—</span></span>
+    <div id="etTime" style="margin-top:5px">—</div>
+  </div>
+</header>
+
+<div class="grid">
+  <div class="stack">
+
+    <div class="panel">
+      <div class="ctl">
+        <div>
+          <label for="cap">Starting capital (USD)</label>
+          <input id="cap" type="number" value="1000" min="1" step="100">
+        </div>
+        <button id="btn" class="go">Start</button>
+        <div class="chips">
+          <span class="chip" data-cap="1000">$1k</span>
+          <span class="chip" data-cap="10000">$10k</span>
+          <span class="chip" data-cap="100000">$100k</span>
+        </div>
+      </div>
+      <div class="stats">
+        <div class="stat"><div class="k">Equity</div><div class="v" id="sEq">—</div></div>
+        <div class="stat"><div class="k">P/L</div><div class="v" id="sPl">—</div></div>
+        <div class="stat"><div class="k">Return</div><div class="v" id="sPct">—</div></div>
+        <div class="stat"><div class="k">S&amp;P 500</div><div class="v" id="sBm">—</div></div>
+        <div class="stat"><div class="k">vs S&amp;P</div><div class="v" id="sAlpha">—</div></div>
+        <div class="stat"><div class="k">Cash</div><div class="v" id="sCash">—</div></div>
+        <div class="stat"><div class="k">Open</div><div class="v" id="sPos">—</div></div>
+        <div class="stat"><div class="k">Trades</div><div class="v" id="sTr">—</div></div>
+        <div class="stat"><div class="k">Win rate</div><div class="v" id="sWin">—</div></div>
+      </div>
+    </div>
+
+    <section class="panel">
+      <h2>Equity curve <span id="curveInfo">waiting for the opening bell</span></h2>
+      <canvas id="chart"></canvas>
+    </section>
+
+    <section class="panel">
+      <h2>Open positions <span id="posInfo"></span></h2>
+      <div class="scroll"><table id="posT">
+        <thead><tr><th>Symbol</th><th>Side</th><th class="num">Qty</th><th class="num">Entry</th>
+          <th class="num">Last</th><th class="num">Stop</th><th class="num">Target</th>
+          <th class="num">P/L</th><th>Strategy</th></tr></thead>
+        <tbody></tbody></table>
+        <div class="empty" id="posEmpty">No open positions.</div>
+      </div>
+    </section>
+
+    <section class="panel">
+      <h2>Closed trades <span id="trInfo"></span></h2>
+      <div class="scroll"><table id="trT">
+        <thead><tr><th>Symbol</th><th>Side</th><th class="num">Entry</th><th class="num">Exit</th>
+          <th class="num">P/L</th><th class="num">%</th><th>Held</th><th>Exit reason</th></tr></thead>
+        <tbody></tbody></table>
+        <div class="empty" id="trEmpty">No closed trades yet.</div>
+      </div>
+    </section>
+
+    <section class="panel">
+      <h2>Live scan <span id="scanInfo">waiting for the opening bell</span></h2>
+      <div class="scroll" style="max-height:420px"><table id="scT">
+        <thead><tr><th>Symbol</th><th>State</th><th class="num">Last</th><th class="num">Gap</th>
+          <th class="num">vs VWAP</th><th>Strategy</th><th>What it is waiting for</th></tr></thead>
+        <tbody></tbody></table>
+        <div class="empty" id="scEmpty">The scan populates once the session opens.</div>
+      </div>
+    </section>
+
+    <section class="panel">
+      <h2>Watchlist <span id="wlInfo">50 names</span></h2>
+      <div class="scroll" style="max-height:460px"><table id="wlT">
+        <thead><tr><th>Symbol</th><th>Theme</th><th class="num">Prev close</th><th class="num">Chg</th>
+          <th class="num">ATR%</th><th class="num">RSI</th><th>Strategy</th></tr></thead>
+        <tbody></tbody></table></div>
+    </section>
+  </div>
+
+  <div class="stack">
+    <section class="panel">
+      <h2>Session drivers</h2>
+      <ul class="macro" id="macro"></ul>
+    </section>
+
+    <section class="panel">
+      <h2>Activity <span id="logInfo"></span></h2>
+      <div class="log" id="log"><div class="empty">Idle.</div></div>
+    </section>
+
+    <section class="panel">
+      <h2>Rules of the sim</h2>
+      <div class="note">
+        Risk 0.8–1.2% of starting equity per trade · max 10 concurrent positions ·
+        max 18% of equity in one name · one trade per symbol per day ·
+        5 bps of slippage each way, always adverse · trail at 50% of open profit past +1R ·
+        no new entries after 15:00 ET · everything flat at 15:55 ET ·
+        hard halt at −8% on the day.
+        <br><br>
+        <strong>Paper only.</strong> Prices are real and delayed by up to a minute; fills, positions
+        and P/L exist only in this process. Nothing is sent to a broker.
+      </div>
+    </section>
+  </div>
+</div>
+</div>
+
+<script>
+const $ = s => document.querySelector(s);
+const money = n => (n<0?"-":"")+"$"+Math.abs(n).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2});
+const sign  = n => (n>=0?"+":"")+n.toFixed(2);
+const cls   = n => n>0?"up":n<0?"down":"neutral";
+let curve = [], capital = 0, running = false;
+
+document.querySelectorAll(".chip").forEach(c =>
+  c.onclick = () => $("#cap").value = c.dataset.cap);
+
+$("#btn").onclick = async () => {
+  if (running) {
+    if (!confirm("Stop trading and flatten every open position?")) return;
+    await fetch("/api/stop", {method:"POST", headers:{"Content-Type":"application/json"}, body:"{}"});
+  } else {
+    const cap = parseFloat($("#cap").value);
+    if (!(cap > 0)) return alert("Enter a starting amount greater than zero.");
+    const r = await fetch("/api/start", {method:"POST",
+      headers:{"Content-Type":"application/json"}, body: JSON.stringify({capital: cap})});
+    const j = await r.json();
+    if (j.error) return alert(j.error);
+    if (j.phase !== "open")
+      alert("The US market is currently " + j.phase.toUpperCase() +
+            ".\n\nThe simulator is armed and will begin trading automatically at 09:30 ET.");
+  }
+  tick();
+};
+
+async function tick() {
+  let s;
+  try { s = await (await fetch("/api/state")).json(); } catch { return; }
+
+  $("#phaseTxt").textContent = s.status === "running" ? "trading · " + s.phase
+                             : s.status === "armed"   ? "armed · " + s.phase
+                             : s.status === "halted"  ? "halted"
+                             : s.status === "done"    ? "session done" : s.phase;
+  $("#phase").className = "pill p-" + s.phase;
+  $("#etTime").textContent = s.etTime + " ET" + (s.lastRefresh ? " · data " + s.lastRefresh : "");
+
+  running = s.status === "running" || s.status === "armed";
+  $("#btn").textContent = running ? "Stop" : (s.status === "done" ? "Restart" : "Start");
+  $("#btn").className = running ? "halt" : "go";
+  $("#cap").disabled = running;
+
+  capital = s.capital;
+  if (s.capital) {
+    $("#sEq").textContent   = money(s.equity);
+    $("#sPl").textContent   = money(s.pl);   $("#sPl").className   = "v " + cls(s.pl);
+    $("#sPct").textContent  = sign(s.plPct) + "%"; $("#sPct").className = "v " + cls(s.pl);
+    $("#sBm").textContent   = sign(s.benchPct || 0) + "%";
+    $("#sBm").className     = "v " + cls(s.benchPct || 0);
+    $("#sAlpha").textContent = sign(s.alpha || 0) + " pp";
+    $("#sAlpha").className  = "v " + cls(s.alpha || 0);
+    $("#sCash").textContent = money(s.cash);
+    $("#sPos").textContent  = s.positions.length;
+    $("#sTr").textContent   = s.tradeCount;
+    $("#sWin").textContent  = s.tradeCount ? s.winRate.toFixed(0) + "%" : "—";
+  }
+
+  curve = s.curve || [];
+  $("#curveInfo").textContent = curve.length
+    ? curve.length + " marks · " + curve[0].t + "–" + curve[curve.length-1].t + " ET"
+    : (s.status === "armed" ? "armed — starts at 09:30 ET" : "waiting for the opening bell");
+  draw();
+
+  // positions
+  const pb = $("#posT tbody"); pb.innerHTML = "";
+  s.positions.forEach(p => pb.insertAdjacentHTML("beforeend", `<tr>
+    <td class="sym">${p.sym}</td>
+    <td class="side-${p.side}">${p.side.toUpperCase()}</td>
+    <td class="num">${p.qty}</td><td class="num">${p.entry.toFixed(2)}</td>
+    <td class="num">${p.price.toFixed(2)}</td><td class="num">${p.stop.toFixed(2)}</td>
+    <td class="num">${p.target.toFixed(2)}</td>
+    <td class="num ${cls(p.pl)}">${money(p.pl)}<br><small>${sign(p.plPct)}%</small></td>
+    <td><span class="tag">${p.strategy}</span></td></tr>`));
+  $("#posEmpty").style.display = s.positions.length ? "none" : "";
+  $("#posInfo").textContent = s.positions.length ? s.positions.length + " open" : "";
+
+  // trades
+  const tb = $("#trT tbody"); tb.innerHTML = "";
+  (s.trades||[]).forEach(t => tb.insertAdjacentHTML("beforeend", `<tr>
+    <td class="sym">${t.sym}</td><td class="side-${t.side}">${t.side.toUpperCase()}</td>
+    <td class="num">${t.entry.toFixed(2)}</td><td class="num">${t.exit.toFixed(2)}</td>
+    <td class="num ${cls(t.pl)}">${money(t.pl)}</td>
+    <td class="num ${cls(t.pl)}">${sign(t.plPct)}%</td>
+    <td>${t.opened}–${t.closed}</td><td style="color:var(--dim)">${esc(t.why)}</td></tr>`));
+  $("#trEmpty").style.display = (s.trades||[]).length ? "none" : "";
+  const won = (s.trades||[]).filter(t=>t.pl>0).length;
+  $("#trInfo").textContent = s.tradeCount ? `${s.tradeCount} closed · ${won} winners` : "";
+
+  // live scan
+  const sc = s.scan || [];
+  const sb = $("#scT tbody"); sb.innerHTML = "";
+  sc.forEach(r => sb.insertAdjacentHTML("beforeend", `<tr>
+    <td class="sym">${r.sym}</td>
+    <td><span class="st-${r.state.replace(/ /g,"-")}">${esc(r.state)}</span></td>
+    <td class="num">${r.price != null ? r.price.toFixed(2) : "—"}</td>
+    <td class="num ${r.gap != null ? cls(r.gap) : ""}">${r.gap != null ? sign(r.gap)+"%" : "—"}</td>
+    <td class="num ${r.vsVwap != null ? cls(r.vsVwap) : ""}">${r.vsVwap != null ? sign(r.vsVwap)+"%" : "—"}</td>
+    <td><span class="tag side-${r.side}">${r.strategy}</span></td>
+    <td style="color:var(--dim)">${esc(r.detail || "")}</td></tr>`));
+  $("#scEmpty").style.display = sc.length ? "none" : "";
+  if (sc.length) {
+    const c = st => sc.filter(r => r.state === st).length;
+    $("#scanInfo").textContent =
+      `${c("signal")} signal · ${c("armed")} armed · ${c("warm-up")} warming up · ` +
+      `${c("in position")} in position · ${c("done")} done`;
+  }
+
+  // log
+  const lg = $("#log");
+  lg.innerHTML = (s.log||[]).length
+    ? s.log.map(l => `<div class="le ${l.kind}"><time>${l.t}</time><span>${esc(l.msg)}</span></div>`).join("")
+    : `<div class="empty">Idle.</div>`;
+
+  if (s.haltedReason) $("#logInfo").textContent = s.haltedReason;
+}
+
+function esc(s){ return s.replace(/[&<>]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;"}[c])); }
+
+function draw() {
+  const cv = $("#chart"), dpr = devicePixelRatio || 1;
+  const w = cv.clientWidth, h = cv.clientHeight;
+  cv.width = w*dpr; cv.height = h*dpr;
+  const g = cv.getContext("2d"); g.scale(dpr,dpr); g.clearRect(0,0,w,h);
+  const pad = {l:62,r:14,t:16,b:24};
+  const W = w-pad.l-pad.r, H = h-pad.t-pad.b;
+
+  if (curve.length < 2) {
+    g.fillStyle="#5a6377"; g.font="13px -apple-system,sans-serif"; g.textAlign="center";
+    g.fillText("Equity is plotted once the session is under way.", w/2, h/2);
+    return;
+  }
+
+  const hasBm = curve.some(p => p.bm != null);
+  const vals = curve.map(p=>p.eq).concat(hasBm ? curve.map(p=>p.bm) : []).concat([capital]);
+  let lo = Math.min(...vals), hi = Math.max(...vals);
+  const padv = (hi-lo)*0.15 || Math.max(capital*0.005, 1);
+  lo -= padv; hi += padv;
+  const X = i => pad.l + (i/(curve.length-1))*W;
+  const Y = v => pad.t + (1-(v-lo)/(hi-lo))*H;
+
+  // grid + axis
+  g.strokeStyle="#232a38"; g.fillStyle="#5a6377";
+  g.font="10px ui-monospace,monospace"; g.textAlign="right"; g.lineWidth=1;
+  for (let i=0;i<=4;i++){
+    const v = lo+(hi-lo)*i/4, y = Y(v);
+    g.beginPath(); g.moveTo(pad.l,y); g.lineTo(w-pad.r,y); g.stroke();
+    g.fillText("$"+v.toLocaleString(undefined,{maximumFractionDigits:0}), pad.l-8, y+3);
+  }
+  // break-even line
+  if (capital>lo && capital<hi){
+    g.save(); g.setLineDash([4,4]); g.strokeStyle="#8a94a8";
+    g.beginPath(); g.moveTo(pad.l,Y(capital)); g.lineTo(w-pad.r,Y(capital)); g.stroke(); g.restore();
+  }
+
+  const last = curve[curve.length-1].eq;
+  const col = last>=capital ? "#2ecc9a" : "#ff5c72";
+
+  // area fill
+  const grad = g.createLinearGradient(0,pad.t,0,pad.t+H);
+  grad.addColorStop(0, col+"44"); grad.addColorStop(1, col+"00");
+  g.beginPath(); g.moveTo(X(0),Y(curve[0].eq));
+  curve.forEach((p,i)=>g.lineTo(X(i),Y(p.eq)));
+  g.lineTo(X(curve.length-1), pad.t+H); g.lineTo(X(0), pad.t+H); g.closePath();
+  g.fillStyle=grad; g.fill();
+
+  // benchmark line, drawn under the portfolio so the portfolio always reads first
+  if (hasBm) {
+    g.save(); g.setLineDash([5,3]);
+    g.beginPath();
+    curve.forEach((p,i)=> i?g.lineTo(X(i),Y(p.bm)):g.moveTo(X(i),Y(p.bm)));
+    g.strokeStyle="#8a94a8"; g.lineWidth=1.5; g.stroke(); g.restore();
+    const bl = curve[curve.length-1].bm;
+    g.fillStyle="#8a94a8"; g.textAlign="left"; g.font="10px ui-monospace,monospace";
+    g.fillText("S&P 500", Math.min(X(curve.length-1)+8, w-pad.r-46), Y(bl)+11);
+  }
+
+  // line
+  g.beginPath(); curve.forEach((p,i)=> i?g.lineTo(X(i),Y(p.eq)):g.moveTo(X(i),Y(p.eq)));
+  g.strokeStyle=col; g.lineWidth=2; g.lineJoin="round"; g.stroke();
+
+  // last dot + label
+  const lx=X(curve.length-1), ly=Y(last);
+  g.beginPath(); g.arc(lx,ly,3.5,0,7); g.fillStyle=col; g.fill();
+  g.textAlign="left"; g.font="600 11px ui-monospace,monospace";
+  g.fillText("$"+last.toLocaleString(undefined,{maximumFractionDigits:0}), Math.min(lx+8,w-pad.r-46), ly-7);
+
+  // time ticks
+  g.fillStyle="#5a6377"; g.font="10px ui-monospace,monospace"; g.textAlign="center";
+  const step = Math.max(1, Math.floor(curve.length/6));
+  for (let i=0;i<curve.length;i+=step) g.fillText(curve[i].t, X(i), h-7);
+}
+
+(async () => {
+  const wl = await (await fetch("/api/watchlist")).json();
+  $("#macro").innerHTML = wl.macro.map(m=>`<li>${esc(m)}</li>`).join("");
+  $("#wlT tbody").innerHTML = wl.items.map(i=>`<tr>
+    <td class="sym" title="${esc(i.name||"")}">${i.sym}</td>
+    <td><span class="tag">${esc(i.bucket)}</span></td>
+    <td class="num">${(i.prevClose||0).toFixed(2)}</td>
+    <td class="num ${cls(i.chgPct)}">${sign(i.chgPct)}%</td>
+    <td class="num">${(i.atrPct||0).toFixed(1)}</td>
+    <td class="num">${(i.rsi14||0).toFixed(0)}</td>
+    <td title="${esc(i.note)}"><span class="tag">${i.strategy}</span></td></tr>`).join("");
+  $("#wlInfo").textContent = wl.items.length + " names · " + wl.sessionDate;
+  $("#subtitle").textContent =
+    `${wl.items.length}-name watchlist · ${wl.sessionDate} session · paper trading on live Yahoo Finance prices`;
+  document.title = `Sentiment Desk — ${wl.sessionDate}`;
+})();
+
+addEventListener("resize", draw);
+tick(); setInterval(tick, 5000);
+</script>
+</body>
+</html>

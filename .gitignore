@@ -1,0 +1,13 @@
+__pycache__/
+*.pyc
+.DS_Store
+
+# Runtime artefacts — regenerated on every run, never committed
+marketsim/state.json
+marketsim/dataset.json
+marketsim/tickers.json
+marketsim/quotes.json
+marketsim/tech.json
+marketsim/watchlist.json
+marketsim/plan.html
+logs/
